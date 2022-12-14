@@ -1,2 +1,0 @@
-class NoMessageError(Exception):
-    pass

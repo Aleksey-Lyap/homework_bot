@@ -1,8 +1,8 @@
 import logging
+import sys
 import os
 import time
 from logging.handlers import RotatingFileHandler
-
 import requests
 import telegram
 from dotenv import load_dotenv
@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-PRACTICUM_TOKEN = os.getenv('TOKEN_Yandex')
-TELEGRAM_TOKEN = os.getenv('TOKEN_Telega')
+PRACTICUM_TOKEN = os.getenv('TOKEN_YANDEX')
+TELEGRAM_TOKEN = os.getenv('TOKEN_TELEGRAM')
 TELEGRAM_CHAT_ID = os.getenv('CHAT_ID')
 
 
@@ -34,9 +34,9 @@ def check_tokens():
     secrets = [PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]
     for secret in secrets:
         if secret is None:
+            logging.error(f'Отсутствует переменная {secret}')
             return False
-        else:
-            return True
+        return True
 
 
 def send_message(bot, message):
@@ -44,7 +44,7 @@ def send_message(bot, message):
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logging.debug(f'Бот отправил сообщение: {message}')
-    except Exception:
+    except telegram.TelegramError:
         logging.error('Не удалось отправить сообщение')
 
 
@@ -55,13 +55,12 @@ def get_api_answer(timestamp):
         homework_statuses = requests.get(
             ENDPOINT, headers=HEADERS, params=PAYLOAD
         )
-    except Exception:
-        logging.error('Ошибка запроса')
+    except requests.exceptions.RequestException:
+        requests.exceptions.RequestException
     if homework_statuses.status_code == 200:
         return homework_statuses.json()
-    else:
-        logging.error('API недоступно')
-        raise Exception
+    logging.error('API недоступно')
+    raise requests.exceptions.RequestException
 
 
 def check_response(response):
@@ -77,35 +76,43 @@ def check_response(response):
 
 def parse_status(homework):
     """Определяем статус домашней работы."""
+    if not isinstance(homework, dict):
+        raise TypeError('Получены данные не в виде словаря')
     if 'homework_name' not in homework:
         raise KeyError('В полученых данных нет ключа homework_name')
-    else:
-        homework_name = homework['homework_name']
-        verdict = homework['status']
-        if verdict not in HOMEWORK_VERDICTS:
-            raise TypeError('неизвестный статус')
-        return (
-            f'Изменился статус проверки работы "{homework_name}".'
-            + f'{HOMEWORK_VERDICTS[verdict]}'
-        )
+    if 'status' not in homework:
+        raise KeyError('В полученых данных нет ключа status')
+    homework_name = homework['homework_name']
+    verdict = homework['status']
+    if verdict not in HOMEWORK_VERDICTS:
+        raise TypeError('неизвестный статус')
+    return (
+        f'Изменился статус проверки работы "{homework_name}".'
+        + f'{HOMEWORK_VERDICTS[verdict]}'
+    )
 
 
 def main():
     """Основная логика работы бота."""
     logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     handler = RotatingFileHandler(
         'main.log', maxBytes=50000000, backupCount=5,
     )
-    formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s'
-    )
     handler.setFormatter(formatter)
+    handler_stream = logging.StreamHandler(sys.stdout)
+    handler_stream.setFormatter(formatter)
     logger.addHandler(handler)
+    logger.addHandler(handler_stream)
+
+    NONE_VARIABLE = 'Отсутствуют обязательные переменные'
 
     if check_tokens() is False:
-        logger.critical('Отсутствуют обязательные переменные')
-        raise SystemExit('Отсутствуют обязательные переменные')
+        logger.critical(NONE_VARIABLE)
+        raise sys.exit(NONE_VARIABLE)
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = 0
@@ -119,25 +126,19 @@ def main():
             message = parse_status(homework['homeworks'][0])
             if status != status_cache:
                 send_message(bot, message)
-                logger.debug('Сообщение отпрвлено')
+                logger.debug('Сообщение отправлено')
                 status_cache = status
             else:
-                logger.INFO('Нет изменений в статусе')
+                logger.info('Нет изменений в статусе')
 
-        except ConnectionError as error:
-            logging.error('Эндпоинт не доступен!')
-            bot.send_message(TELEGRAM_CHAT_ID, error)
-        except requests.RequestException as error:
-            logging.error(error)
-            bot.send_message(TELEGRAM_CHAT_ID, error)
-        except TypeError as error:
-            logging.error(error)
-            bot.send_message(TELEGRAM_CHAT_ID, error)
-        except KeyError as error:
+        except (
+            ConnectionError, requests.RequestException, TypeError, KeyError
+        ) as error:
             logging.error(error)
             bot.send_message(TELEGRAM_CHAT_ID, error)
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
+            logging.error(message)
         finally:
             time.sleep(RETRY_PERIOD)
 
