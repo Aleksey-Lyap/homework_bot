@@ -33,10 +33,11 @@ def check_tokens():
     """
     secrets = [PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]
     for secret in secrets:
+        result = True
         if secret is None:
             logging.error(f'Отсутствует переменная {secret}')
-            return False
-        return True
+            result = False
+    return result
 
 
 def send_message(bot, message):
@@ -51,16 +52,17 @@ def send_message(bot, message):
 def get_api_answer(timestamp):
     """Запрос к эндпоинту API-сервиса."""
     PAYLOAD = {'from_date': timestamp}
+    ERROR_DESCRIPTHION = 'Не удалось выполнить запрос к API'
     try:
         homework_statuses = requests.get(
             ENDPOINT, headers=HEADERS, params=PAYLOAD
         )
     except requests.exceptions.RequestException:
-        requests.exceptions.RequestException
+        requests.RequestException(ERROR_DESCRIPTHION)
     if homework_statuses.status_code == 200:
         return homework_statuses.json()
     logging.error('API недоступно')
-    raise requests.exceptions.RequestException
+    raise requests.RequestException(ERROR_DESCRIPTHION)
 
 
 def check_response(response):
@@ -110,7 +112,9 @@ def main():
 
     NONE_VARIABLE = 'Отсутствуют обязательные переменные'
 
-    if check_tokens() is False:
+    result = check_tokens()
+
+    if result is False:
         logger.critical(NONE_VARIABLE)
         raise sys.exit(NONE_VARIABLE)
 
