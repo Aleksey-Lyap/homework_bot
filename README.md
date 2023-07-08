@@ -24,6 +24,7 @@ python3 -m venv venv
 ```
 * Для Linux/MacOS: `source venv/bin/activate`
 * Если у вас Windows `source venv/Scripts/activate`
+
 Установить зависимости из файла requirements.txt:
 ```
 python3 -m pip install --upgrade pip
